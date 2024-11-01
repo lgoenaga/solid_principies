@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 import stripe
 from stripe.error import StripeError
@@ -7,6 +7,7 @@ from stripe import Charge
 from dotenv import load_dotenv
 from email.mime.text import MIMEText
 from pydantic import BaseModel
+from abc import ABC, abstractmethod
 
 # Load environment variables from .env file
 _ = load_dotenv()
@@ -45,21 +46,27 @@ class ValidatePaymentData:
             raise ValueError("Invalid payment data")
         return True
 
+class Notify(ABC):
+    @abstractmethod
+    def notify_customer(self, customer_data: CustomerData): ...
+    
 @dataclass
-class NotifyCustomer:
+class EmailNotify(Notify):
     def notify_customer(self, customer_data: CustomerData):
-        if customer_data.contact_info.email:
             msg = MIMEText("Thank you for your payment.")
             msg["Subject"] = "Payment Confirmation"
             msg["From"] = "no-reply@example.com"
             msg["To"] = customer_data.contact_info.email
             print("Email sent to", customer_data.contact_info.email)
-        elif customer_data.contact_info.phone:
+            return 
+
+@dataclass
+class SMSNotify(Notify):
+    def notify_customer(self, customer_data: CustomerData):
             phone_number = customer_data.contact_info.phone
             sms_gateway = "the custom SMS Gateway"
             print(f"send the sms using {sms_gateway}: SMS sent to {phone_number}: Thank you for your payment.")
-        else:
-            print("No valid contact information for notification")
+            return
 
 @dataclass
 class LogTransaction:
@@ -68,8 +75,12 @@ class LogTransaction:
             log_file.write(f"{customer_data.name} paid {payment_data.amount}\n")
             log_file.write(f"Payment status: {charge['status']}\n")
 
+class PaymentProcessor(ABC):
+    @abstractmethod
+    def process_transaction(self, customer_data: CustomerData, payment_data: PaymentData) -> Charge:  ...
+
 @dataclass
-class ProcessPayment:
+class ProcessPayment(PaymentProcessor):
     def process_transaction(self, customer_data: CustomerData, payment_data: PaymentData):
         stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
         try:
@@ -89,8 +100,8 @@ class ProcessPayment:
 class PaymentService:
     validate_data = ValidateData()
     validate_payment_data = ValidatePaymentData()
-    process_payment = ProcessPayment()
-    notify_customer = NotifyCustomer()
+    process_payment: PaymentProcessor = field(default_factory=ProcessPayment)
+    notify: Notify = field(default_factory=EmailNotify)
     log_transaction = LogTransaction()
 
     def process_payments(self, payment_data: PaymentData, customer_data: CustomerData) -> Charge:
@@ -98,7 +109,7 @@ class PaymentService:
             self.validate_data.validate_customer_data(customer_data)
             self.validate_payment_data.validate_payment_data(payment_data)
             charge = self.process_payment.process_transaction(customer_data, payment_data)
-            self.notify_customer.notify_customer(customer_data)
+            self.notify.notify_customer(customer_data)
             self.log_transaction.log_transaction(customer_data, payment_data, charge)
             return charge
         except Exception as e:
@@ -106,11 +117,12 @@ class PaymentService:
             raise e
 
 if __name__ == "__main__":
+    sms_notify = SMSNotify()
     payment_service = PaymentService()
 
     customer_data_with_email = CustomerData(
         name="John Doe",
-        contact_info=ContactInfo(email="e@mail.com")
+        contact_info=ContactInfo(email="example@mail.com")
     )
     customer_data_with_phone = CustomerData(
         name="Platzi Python",

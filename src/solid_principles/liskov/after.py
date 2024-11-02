@@ -57,7 +57,7 @@ class Notify(Protocol):
         :type customer_data: CustomerData
         '''
         ...
-    
+
 @dataclass
 class EmailNotify(Notify):
     def notify_customer(self, customer_data: CustomerData):
@@ -140,6 +140,7 @@ class PaymentService:
 if __name__ == "__main__":
     sms_notify = SMSNotify()
     payment_service = PaymentService()
+    payment_service_sms = PaymentService(notify=sms_notify)
 
     customer_data_with_email = CustomerData(
         name="John Doe",
@@ -153,4 +154,4 @@ if __name__ == "__main__":
     payment_data = PaymentData(amount=500, source="tok_mastercard")
 
     payment_service.process_payments(payment_data, customer_data_with_email)
-    payment_service.process_payments(payment_data, customer_data_with_phone)
+    payment_service_sms.process_payments(payment_data, customer_data_with_phone)
